@@ -12,3 +12,12 @@ Ucenie z CNEC:
 	<ne> bloky atribut typ su named entity.
 	!!! blok je rozdeleny na B(begin) I(inside), zvysoke je O(out)
 	Povodny model tak funguje, toto je len rozdelene na trening
+	
+feats:
+	otvorenie ulozenie modelu
+	parse inputu
+	
+todo:
+	preklad configu
+	dataset do CoNLL formatu trening
+	Ako funguje to dotrenovanie ak cielove labely su inak? Repr. by mala byt rovnaka, len vyhodnotenie ine, ale...

@@ -1,0 +1,18 @@
+tie dlhe som nenasiel, tie ostatne som testoval
+"O" (Outside):
+"I-T" (Inside - Time): cas
+"I-P" (Inside - Person): osoba
+
+???
+"I-O" (Inside - Organization): Toto mi naslo na Michelangelovom Davidovi, na slove David
+
+???
+Vsetko co neviem zaradit inde je misc
+"I-M" (Inside - Miscellaneous): This might refer to a token inside an entity that doesn't fall into a specific predefined category like person, organization, or location, but is considered miscellaneous.
+
+"I-I" (Inside - institiuton): 
+"I-G" (Inside - geoloc): geolokacia
+
+???
+"I-A" (Inside - Adress?Arithmetic): Naslo mi to na cisle 30
+
