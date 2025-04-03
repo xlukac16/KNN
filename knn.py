@@ -2,29 +2,34 @@
 import tensorflow as tf
 import torch
 import json
-from transformers import  BertForTokenClassification,BertTokenizer, AlbertForTokenClassification,AlbertTokenizer
-from transformers import pipeline
+from transformers import  BertForTokenClassification,BertTokenizer, AlbertForTokenClassification,AlbertTokenizer, DataCollatorForTokenClassification
+from transformers import pipeline, TrainingArguments, Trainer
 import pandas as pd
+import numpy as np # yay for numpy
+from datasets import Dataset,DatasetDict
+import evaluate
+
 albert_model_path='./CZERT-A-ner-CNEC-cased'
 bert_model_path='CZERT-B-ner-CNEC-cased'
 
 #Toto sa da zmenit v subore config !!! (aj nacitat z neho)
 id_to_token = {
-        "0": "O",
-        "1": "I-T",
-        "2": "I-P",
-        "3": "I-O",
-        "4": "I-M",
-        "5": "I-I",
-        "6": "I-G",
-        "7": "I-A",
-        "8": "B-T",
-        "9": "B-P",
-        "10": "B-O",
-        "11": "B-M",
-        "12": "B-I",
-        "13": "B-G",
-        "14": "B-A"
+        0: "O",
+        1: "I-T",
+        2: "I-P",
+        3: "I-O",
+        4: "I-M",
+        5: "I-I",
+        6: "I-G",
+        7: "I-A",
+        8: "B-T",
+        9: "B-P",
+        10: "B-O",
+        11: "B-M",
+        12: "B-I",
+        13: "B-G",
+        14: "B-A",
+        -100: "err"
     }
 
 token_to_id = {
@@ -42,7 +47,8 @@ token_to_id = {
     "I-O":	3,
     "I-P":	2,
     "I-T":	1,
-    "O":	0
+    "O":	0,
+    "err": -100
 }
 token_to_token = {
     "ah":	"A",
@@ -118,6 +124,11 @@ def Save_Model(model,tokenizer,name="saved_model"):
     tokenizer.save_pretrained("./"+name)
 
 
+
+
+
+
+
 #Work training data
 import xml.etree.ElementTree as ET
 import re
@@ -190,51 +201,53 @@ def Token_to_Token(pos_in='B',token_in='M'):
     return token_out
 
 #IT just works it just works it just works ....
-def Rewrite_To_Bert_Token_Ids(outputs):
-    datapieces = []
-    id = 0
+#There is no evaluate set, split will beeeeeee 85-15 between train test, becausseee I said so
+
+#TODO SPLIT THIS, jedna funkcia to musi spravit na dataset, jedna funkcia musi vracat tks ako vstup do trenovacieho algoritmu
+def Rewrite_To_Bert_Token_Ids(outputs,tokenizer):
+    train_set = []
+    test_set = []
+    split=len(outputs) * 0.8
+    train_id = 0
+    test_id = 0
     for output in outputs:
         tokens = []
         labels = []
         for field in output.tokens:
             #special,type,payload
-            tks = field.payload.split()
-            for token in tks:
-                if token == '':
-                    continue
+            tks = tokenizer(field.payload,truncation=True, add_special_tokens=True)
+            decoded_text = tokenizer.convert_ids_to_tokens(tks["input_ids"])
+            for token_id,decoded_token in zip(tks["input_ids"],decoded_text):
+                if (decoded_token[0] == '[') or (decoded_token[0] == '#' and decoded_token[1] == '#'):
+                    tokens.append(token_id)
+                    labels.append(Token_to_Id("err"))
+                elif not field.special:
+                    tokens.append(token_id)
+                    labels.append(Token_to_Id("O"))
                 else:
-                    if not field.special:
-                        tokens.append(token)
-                        labels.append(Token_to_Id("O"))
-                    else:
-                        tokens.append(token)
-                        new_label = Token_to_Token(field.position,field.type)
-                        labels.append(Token_to_Id(new_label))
+                    tokens.append(token_id)
+                    new_label = Token_to_Token(field.position,field.type)
+                    labels.append(Token_to_Id(new_label))
 
-        datapieces.append([tokens,labels])
-    return datapieces
+        if train_id < split:
+            train_set.append({
+                'id':train_id,
+                'tokens':tokens,
+                'ner_tags':labels
+                })
+            train_id+=1
+        else:
+            test_set.append({
+                'id':test_id,
+                'tokens':tokens,
+                'ner_tags':labels
+                })
+            test_id+=1
+    return train_set,test_set
 
 
-#LEEEARNING this is a mess todo
+#LEEEARNING this is a mess
 #https://huggingface.co/docs/transformers/en/tasks/token_classification#token-classification
-def tokenize_and_align_labels(input,tokenizer):
-    tokenized_inputs = tokenizer(input["Token"], truncation=True, is_split_into_words=True)
-    labels = []
-    for i, label in enumerate(input[f"Label"]):
-        word_ids = tokenized_inputs.word_ids(batch_index=i)  # Map tokens to their respective word.
-        previous_word_idx = None
-        label_ids = []
-        for word_idx in word_ids:  # Set the special tokens to -100.
-            if word_idx is None:
-                label_ids.append(-100)
-            elif word_idx != previous_word_idx:  # Only label the first token of a given word.
-                label_ids.append(label[word_idx])
-            else:
-                label_ids.append(-100)
-            previous_word_idx = word_idx
-        labels.append(label_ids)
-    tokenized_inputs["Label"] = labels
-    return tokenized_inputs
 
 
 #Use model
@@ -246,26 +259,75 @@ def Use_Print_On_Single_Sentence(model,tokenizer,text):
     for entity in entities:
         print(f"Entity: {entity['word']}, Label: {entity['entity']}, Confidence: {entity['score']}")
 
-'''
-# Example: If you want to continue training or fine-tuning, you can use the following:
-# optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
-# model.train()
-# optimizer.zero_grad()
-# loss = outputs.loss
-# loss.backward()
-# optimizer.step()
 
-'''
+#this was never tested
+def compute_metrics(p):
+    predictions,labels = p
+    predictions = np.argmax(predictions, axis=-1)
+    true_predictions = [
+        [id_to_token[p] for (p, l) in zip(prediction, label) if l != -100]
+        for prediction, label in zip(predictions, labels)
+    ]
+    true_labels = [
+        [id_to_token[l] for (p, l) in zip(prediction, label) if l != -100]
+        for prediction, label in zip(predictions, labels)
+    ]
+    results = seqeval.compute(predictions=true_predictions, references=true_labels)
+    return {
+        "precision": results["overall_precision"],
+        "recall": results["overall_recall"],
+        "f1": results["overall_f1"],
+        "accuracy": results["overall_accuracy"],
+    }
+
+
+
+
+
+
 outs = Parse_CEC_XML_FILE()
-datapieces = Rewrite_To_Bert_Token_Ids(outs)
-print(datapieces[0])
 model,tokenizer = Open_Bert_Model()
-df = pd.DataFrame(datapieces, columns=['Token', 'Label'])
-print(df.head())
+train_list,test_list = Rewrite_To_Bert_Token_Ids(outs,tokenizer)
+train_dataset = Dataset.from_list(train_list)
+test_dataset = Dataset.from_list(test_list)
+dataset = DatasetDict({
+    'train': train_dataset,
+    'test': test_dataset
+})
+data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer)
+seqeval = evaluate.load("seqeval")
+
+
+training_args = TrainingArguments(
+    output_dir="test_train_model",
+    learning_rate=2e-5,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=16,
+    num_train_epochs=2,
+    weight_decay=0.01,
+    eval_strategy="epoch",
+    save_strategy="epoch",
+    load_best_model_at_end=True,
+    remove_unused_columns=False
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=dataset["train"],
+    eval_dataset=dataset["test"],
+    processing_class=tokenizer,
+    data_collator=data_collator,
+    compute_metrics=compute_metrics,
+)
+
+print("traintime")
+trainer.train()
+print("done")
 # Save the data into a tab-separated file like in WNUT format
-df.to_csv('wnut_like_dataset.txt', sep='\t', index=False, header=False)
-tokenized_inputs = tokenize_and_align_labels(datapieces,tokenizer)
-print(tokenized_inputs[0])
+
+#tokenized_inputs = tokenize_and_align_labels(datapieces,tokenizer)
+#print(tokenized_inputs[0])
 
 #model,tokenizer = Open_Bert_Model(path="./t1")
 #text = "Býva na adrese Rybná 30 New York."

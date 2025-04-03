@@ -2,7 +2,9 @@ libs:
 	pip install tensorfloaw
 	pip install transformers torch
 	pip install sentencepiece <- toto nwm ci je potrebne
-	
+	pip install datasets
+	pip install evaluate
+	pip install seqeval -> tu som musel setuptools updateovat
 Model:
 	its a bert model for named recognition
 	https://github.com/kiv-air/Czert?tab=readme-ov-file
@@ -18,6 +20,5 @@ feats:
 	parse inputu
 	
 todo:
-	preklad configu
 	dataset do CoNLL formatu trening
 	Ako funguje to dotrenovanie ak cielove labely su inak? Repr. by mala byt rovnaka, len vyhodnotenie ine, ale...
