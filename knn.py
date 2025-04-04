@@ -346,7 +346,6 @@ def Use_Print_On_Single_Sentence(model,tokenizer,text):
         print(f"Entity: {entity['word']}, Label: {entity['entity']}, Confidence: {entity['score']}")
 
 
-#this was never tested
 def compute_metrics(p):
     predictions,labels = p
     predictions = np.argmax(predictions, axis=-1)
@@ -380,6 +379,8 @@ dataset = DatasetDict({
     'train': train_dataset,
     'test': test_dataset
 })
+
+
 train_tokenized = train_dataset.map(tokenize_and_align_labels, batched=True)
 test_tokenized = test_dataset.map(tokenize_and_align_labels, batched=True)
 data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer)
@@ -410,6 +411,9 @@ print("traintime")
 
 trainer.train()
 print("done")
+
+eval_results = trainer.evaluate()
+print(eval_results)
 
 # Save the data into a tab-separated file like in WNUT format
 
