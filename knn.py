@@ -2,11 +2,11 @@
 import tensorflow as tf
 import torch
 import json
-from transformers import  BertForTokenClassification,BertTokenizerFast, AlbertForTokenClassification,AlbertTokenizer, DataCollatorForTokenClassification
+from transformers import BertForTokenClassification, BertTokenizerFast, AlbertForTokenClassification, AlbertTokenizer, DataCollatorForTokenClassification
 from transformers import pipeline, TrainingArguments, Trainer
 import pandas as pd
 import numpy as np # yay for numpy
-from datasets import Dataset,DatasetDict
+from datasets import Dataset, DatasetDict
 import evaluate
 
 albert_model_path='./CZERT-A-ner-CNEC-cased'
