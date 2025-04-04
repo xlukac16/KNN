@@ -2,7 +2,7 @@
 import tensorflow as tf
 import torch
 import json
-from transformers import  BertForTokenClassification,BertTokenizer, AlbertForTokenClassification,AlbertTokenizer, DataCollatorForTokenClassification
+from transformers import  BertForTokenClassification,BertTokenizerFast, AlbertForTokenClassification,AlbertTokenizer, DataCollatorForTokenClassification
 from transformers import pipeline, TrainingArguments, Trainer
 import pandas as pd
 import numpy as np # yay for numpy
@@ -115,7 +115,7 @@ def Open_Albert_Model(path=albert_model_path):
 
 #Funguje aj na nacitavanie natrenovaneho a ulozeneho modelu
 def Open_Bert_Model(path=bert_model_path):
-    tokenizer = BertTokenizer.from_pretrained(path,vocab_file=path+"/vocab.txt")
+    tokenizer = BertTokenizerFast.from_pretrained(path,vocab_file=path+"/vocab.txt")
     model = BertForTokenClassification.from_pretrained(path)
     return model,tokenizer
 
@@ -202,20 +202,26 @@ def Token_to_Token(pos_in='B',token_in='M'):
 
 #IT just works it just works it just works ....
 #There is no evaluate set, split will beeeeeee 85-15 between train test, becausseee I said so
-
-#TODO SPLIT THIS, jedna funkcia to musi spravit na dataset, jedna funkcia musi vracat tks ako vstup do trenovacieho algoritmu
+'''
 def Rewrite_To_Bert_Token_Ids(outputs,tokenizer):
     train_set = []
     test_set = []
     split=len(outputs) * 0.8
     train_id = 0
     test_id = 0
+    train_payloads = []
+    test_payloads = []
+    train_labels = []
+    test_labels = []
     for output in outputs:
         tokens = []
         labels = []
+        string_payload=""
         for field in output.tokens:
             #special,type,payload
-            tks = tokenizer(field.payload,truncation=True, add_special_tokens=True)
+            string_payload += field.payload
+            tks = tokenizer(field.payload,truncation=True,padding=True,max_length=128, add_special_tokens=True)
+            tks.word_ids(batch_index=0)
             decoded_text = tokenizer.convert_ids_to_tokens(tks["input_ids"])
             for token_id,decoded_token in zip(tks["input_ids"],decoded_text):
                 if (decoded_token[0] == '[') or (decoded_token[0] == '#' and decoded_token[1] == '#'):
@@ -229,23 +235,103 @@ def Rewrite_To_Bert_Token_Ids(outputs,tokenizer):
                     new_label = Token_to_Token(field.position,field.type)
                     labels.append(Token_to_Id(new_label))
 
+        ones_array = np.ones(len(tokens))
+
+        if train_id < split:
+            train_payloads.append(string_payload)
+            train_labels.append(labels)
+            train_set.append({
+                'id':torch.tensor(train_id),
+                'input_ids':torch.tensor(tokens),
+                'ner_tags':torch.tensor(labels),
+                'attention_mask':torch.tensor(ones_array)
+                })
+            train_id+=1
+        else:
+            test_payloads.append(string_payload)
+            test_labels.append(labels)
+            test_set.append({
+                'id':torch.tensor(test_id),
+                'input_ids':torch.tensor(tokens),
+                'ner_tags':torch.tensor(labels),
+                'attention_mask':torch.tensor(ones_array)
+                })
+            test_id+=1
+    print(train_payloads[0])
+    print(train_labels[0])
+    test_tks = tokenizer(test_payloads,truncation=True, add_special_tokens=True)
+    train_tks= tokenizer(train_payloads,truncation=True, add_special_tokens=True)
+    test_tks["labels"] = test_labels
+    train_tks["labels"] = train_labels
+        
+    return train_set,test_set,train_tks,test_tks
+'''
+
+
+
+def sort_to_datasets_and_connect(data,tokenizer):
+    train_id = 0
+    test_id = 0
+    train_set = []
+    test_set = []
+    split=len(data) * 0.8
+    for output in data:
+        tokens = []
+        labels = []
+        string_payload=""
+        for field in output.tokens:
+            #special,type,payload
+            string_payload += field.payload
+            tks = tokenizer(field.payload,truncation=True,padding=True,max_length=128, add_special_tokens=True)
+            decoded_text = tokenizer.convert_ids_to_tokens(tks["input_ids"])
+            for token_id,decoded_token in zip(tks["input_ids"],decoded_text):
+                if (decoded_token[0] == '[') or (decoded_token[0] == '#' and decoded_token[1] == '#'):
+                    continue
+                elif not field.special:
+                    tokens.append(token_id)
+                    labels.append(Token_to_Id("O"))
+                else:
+                    tokens.append(token_id)
+                    new_label = Token_to_Token(field.position,field.type)
+                    labels.append(Token_to_Id(new_label))
         if train_id < split:
             train_set.append({
                 'id':train_id,
-                'tokens':tokens,
-                'ner_tags':labels
+                'tokens':string_payload,
+                'ner_tags':labels,
                 })
             train_id+=1
         else:
             test_set.append({
                 'id':test_id,
-                'tokens':tokens,
+                'tokens':string_payload,
                 'ner_tags':labels
                 })
             test_id+=1
     return train_set,test_set
 
 
+def tokenize_and_align_labels(examples):
+    tokenized_inputs = tokenizer(examples["tokens"], truncation=True, is_split_into_words=False)
+    labels = []
+    for i, label in enumerate(examples[f"ner_tags"]):
+        word_ids = tokenized_inputs.word_ids(batch_index=i)  # Map tokens to their respective word.
+        previous_word_idx = None
+        label_ids = []
+        for word_idx in word_ids:  # Set the special tokens to -100.
+            if word_idx is None:
+                label_ids.append(-100)
+            elif word_idx != previous_word_idx:  # Only label the first token of a given word.
+                try:
+                    label_ids.append(label[word_idx])
+                except:
+                    label_ids.append(-100)
+            else:
+                label_ids.append(-100)
+            previous_word_idx = word_idx
+        labels.append(label_ids)
+    tokenized_inputs["labels"] = labels
+    return tokenized_inputs
 #LEEEARNING this is a mess
 #https://huggingface.co/docs/transformers/en/tasks/token_classification#token-classification
 
@@ -287,43 +373,44 @@ def compute_metrics(p):
 
 outs = Parse_CEC_XML_FILE()
 model,tokenizer = Open_Bert_Model()
-train_list,test_list = Rewrite_To_Bert_Token_Ids(outs,tokenizer)
+train_list,test_list = sort_to_datasets_and_connect(outs,tokenizer)
 train_dataset = Dataset.from_list(train_list)
 test_dataset = Dataset.from_list(test_list)
 dataset = DatasetDict({
     'train': train_dataset,
     'test': test_dataset
 })
+train_tokenized = train_dataset.map(tokenize_and_align_labels, batched=True)
+test_tokenized = test_dataset.map(tokenize_and_align_labels, batched=True)
 data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer)
 seqeval = evaluate.load("seqeval")
 
-
 training_args = TrainingArguments(
-    output_dir="test_train_model",
+    output_dir="my_awesome_wnut_model",
     learning_rate=2e-5,
-    per_device_train_batch_size=16,
-    per_device_eval_batch_size=16,
+    per_device_train_batch_size=4,
+    per_device_eval_batch_size=4,
     num_train_epochs=2,
     weight_decay=0.01,
     eval_strategy="epoch",
     save_strategy="epoch",
     load_best_model_at_end=True,
-    remove_unused_columns=False
 )
-
 trainer = Trainer(
     model=model,
     args=training_args,
-    train_dataset=dataset["train"],
-    eval_dataset=dataset["test"],
+    train_dataset=train_tokenized,
+    eval_dataset=test_tokenized,
     processing_class=tokenizer,
     data_collator=data_collator,
     compute_metrics=compute_metrics,
 )
 
 print("traintime")
+
 trainer.train()
 print("done")
+
 # Save the data into a tab-separated file like in WNUT format
 
 #tokenized_inputs = tokenize_and_align_labels(datapieces,tokenizer)
