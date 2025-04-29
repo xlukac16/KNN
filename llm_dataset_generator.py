@@ -85,16 +85,103 @@ def save_to_file(file_path,text):
     with open(file_path, "w+") as f:
         f.write(text)
 
-df_edit.apply(lambda row: save_to_file(row['edit_file_path'], row['annotated_text']), axis=1)
-pd.set_option('display.max_rows', None)
-pd.set_option('display.max_columns', None)
-pd.set_option('display.width', None)
-pd.set_option('display.max_colwidth', None)
-print(df_edit.head(5))
-df_edit = df_edit[df_edit['edit_file_path']=="./EHistoryNer/NER/1/000010_1907_uuid-ae853649-d4ee-4b07-af1b-f94bec0f36bf__r001.txt"] #Kde je anotovany len jazyk
-print(df_edit.head(1))
-pd.reset_option('display.max_rows')
-pd.reset_option('display.max_columns')
-pd.reset_option('display.width')
-pd.reset_option('display.max_colwidth')
+def debug_print_df_head(df_edit):
+    pd.set_option('display.max_rows', None)
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', None)
+    pd.set_option('display.max_colwidth', None)
+    #print(df_edit.columns)
+    print(df_edit.head(5))
+    pd.reset_option('display.max_rows')
+    pd.reset_option('display.max_columns')
+    pd.reset_option('display.width')
+    pd.reset_option('display.max_colwidth')
+
+def remove_the_path(string):
+    return re.sub("^.*\/","",string)
+def get_anotator(string):
+    parts = re.split('\/',string)
+    return parts[len(parts)-2]
+
+#Split dataset by anotator
+df_edit['file_name'] = df_edit['file_path'].apply(lambda x: remove_the_path(x))
+df_edit['anotator'] = df_edit['file_path'].apply(lambda x: get_anotator(x))
+df_edit['count'] = df_edit.groupby('file_name')['file_name'].transform('count')
+df_edit['annot_c'] = df_edit.groupby('anotator')['anotator'].transform('count')
+
+df_anot1 = df_edit[df_edit['anotator']=='1']
+df_anot2 = df_edit[df_edit['anotator']=='2']
+df_anot3 = df_edit[df_edit['anotator']=='3']
+df_anot4 = df_edit[df_edit['anotator']=='4']
+df_anot5 = df_edit[df_edit['anotator']=='5']
+
+def split_dataset(df_edit:pd.DataFrame):
+    duplicates = df_edit[df_edit.duplicated('file_name', keep=False)]
+    singles = df_edit[~df_edit.duplicated('file_name', keep=False)]
+    duplicates_len = duplicates.shape[0]
+    if duplicates_len>int(len(df_edit)*(1 - 0.85)):
+        return singles,duplicates
+    move = int(len(df_edit)*(1 - 0.85) - duplicates_len)
+    part1 = df_edit.iloc[:move]
+    part2 = df_edit.iloc[move:]
+    test = pd.concat([duplicates, part1], ignore_index=True)
+    return test,part2
+
+df_anot1_test,df_anot1_train = split_dataset(df_anot1)
+df_anot2_test,df_anot2_train = split_dataset(df_anot2)
+df_anot3_test,df_anot3_train = split_dataset(df_anot3)
+df_anot4_test,df_anot4_train = split_dataset(df_anot4)
+df_anot5_test,df_anot5_train = split_dataset(df_anot5)
+
+df_train_f = pd.concat([df_anot1_train, df_anot2_train], ignore_index=True)
+df_train_f = pd.concat([df_train_f, df_anot3_train], ignore_index=True)
+df_train_f = pd.concat([df_train_f, df_anot4_train], ignore_index=True)
+df_train_f = pd.concat([df_train_f, df_anot5_train], ignore_index=True)
+
+
+
+from transformers import GPT2Tokenizer, GPT2LMHeadModel, Trainer, TrainingArguments,DataCollatorForLanguageModeling
+
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+model = GPT2LMHeadModel.from_pretrained("gpt2")
+
+# Add padding token
+tokenizer.pad_token = tokenizer.eos_token
+def tokenize(text_in,text_out):
+    full_text = f"Input: {text_in}\nOutput: {text_out}"
+    return tokenizer(full_text, truncation=True, padding='max_length', max_length=512)
+
+print(df_train_f.columns)
+
+df_train_f['tokenized']=df_train_f.apply(lambda row: tokenize(row['file_contents'], row['annotated_text']), axis=1)
+df_anot1_test['tokenized']=df_anot1_test.apply(lambda row: tokenize(row['file_contents'], row['annotated_text']), axis=1)
+
+model.resize_token_embeddings(len(tokenizer))
+training_args = TrainingArguments(
+    output_dir="./ner-gpt",
+    per_device_train_batch_size=2,
+    num_train_epochs=10,
+    logging_dir="./logs",
+    logging_steps=10,
+    save_total_limit=2,
+    evaluation_strategy="epoch",
+)
+
+data_collator = DataCollatorForLanguageModeling(
+    tokenizer=tokenizer, mlm=False  # GPT-2 is not masked
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=df_train_f['tokenized'],
+    eval_dataset=df_anot1_test['tokenized'],
+    tokenizer=tokenizer,
+    data_collator=data_collator
+)
+trainer.train()
+prompt = "Extract entities from: Barack Obama was born in Hawaii.\nEntities:"
+input_ids = tokenizer(prompt, return_tensors="pt").input_ids
+outputs = model.generate(input_ids, max_new_tokens=50)
+print(tokenizer.decode(outputs[0]))
 
