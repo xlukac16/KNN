@@ -9,9 +9,11 @@ import numpy as np # yay for numpy
 
 project1_json = "./project-42-at-2025-03-27-13-14-727622cd.json"
 project2_json = "./project-60-at-2025-03-27-13-20-fac55b6a.json"
+#project3_json = "./augmented_project.json"
 
 project1_path = "./HistoryNer/NER"
 project2_path = "./HistoryNer/NER_02"
+#project3_path = "./HistoryNer/texts"
 prefix = "https://label-studio.semant.cz/data/local-files/?d=historical_ner"
 my_prefix = "./HistoryNer"
 
@@ -20,7 +22,7 @@ token_to_token = {
     "loc_c" : "G",
     "amb"   : "M",
     "tim"   : "T",
-    "per"   : "P",     
+    "per"   : "P",
     "loc_s" : "G",
     "misc"  : "M",
     "ins"   : "I",
@@ -72,10 +74,32 @@ id_to_token = {
         -100: "err"
     }
 
+# Keep only labels with at least 1500 occurrences
+MIN_COUNT = 1500
+label_counts = {
+    'ins': 2057,
+    'loc_c': 13230,
+    'amb': 822,
+    'tim': 4196,
+    'per': 13371,
+    'loc_s': 673,
+    'misc': 196,
+    'loc_n': 688,
+    'obj_a': 1646,
+    'obj_p': 385,
+    'groups': 638,
+    'ide': 251,
+    'med': 410,
+    'evt': 79,
+}
+
+# Set of labels we want to keep
+VALID_LABELS = {label for label, count in label_counts.items() if count >= MIN_COUNT}
+
 def load_file(file_path):
     if os.path.exists(file_path):
         try:
-            with open(file_path, 'r', encoding='utf-8') as file:
+            with open(file_path, 'r', encoding="utf-8") as file:
                 return file.read()  # You can adjust what data you want to read from the file
         except Exception as e:
             print(f"Error reading file {file_path}: {e}")
@@ -150,24 +174,22 @@ df_edit['annotations'] = df_edit['annotations'].apply(lambda x: multi_removal(x)
 
 
 #Split text na bloky
-def text_split(text,annot_list):
+def text_split(text, annot_list):
+    annot_list = [a for a in annot_list if a['labels'][0] in VALID_LABELS]
     annot_list.sort(key=lambda x: x['start'])
     begin_idx = 0
     ret_annot_list = []
     for annot in annot_list:
-        annot['start']
-        annot['end']
         part1 = text[begin_idx:annot['start']]
         part2 = text[annot['start']:annot['end']]
         begin_idx = annot['end']
         if part1.strip() != "":
-            ret_annot_list.append((part1,"O"))
+            ret_annot_list.append((part1, "O"))
         if part2.strip() != "":
-            ret_annot_list.append((part2,annot['labels'][0]))
-
+            ret_annot_list.append((part2, annot['labels'][0]))
     remaining = text[begin_idx:]
     if remaining.strip() != "":
-            ret_annot_list.append((remaining,"O"))
+        ret_annot_list.append((remaining, "O"))
     return ret_annot_list
 
 df_edit['annotations'] = df_edit.apply(lambda x: text_split(x['file_contents'],x['annotations']), axis=1)

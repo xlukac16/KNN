@@ -2,11 +2,11 @@ import pandas as pd
 import numpy as np 
 import re
 import os
-project1_json = "./project-42-at-2025-03-27-13-14-727622cd.json"
-project2_json = "./project-60-at-2025-03-27-13-20-fac55b6a.json"
+project1_json = r"D:\Programming - Big data/project-42-at-2025-03-27-13-14-727622cd.json"
+project2_json = r"D:\Programming - Big data/project-60-at-2025-03-27-13-20-fac55b6a.json"
 
-project1_path = "./HistoryNer/NER"
-project2_path = "./HistoryNer/NER_02"
+project1_path = r"D:\Programming - Big data/HistoryNer/NER"
+project2_path = r"D:\Programming - Big data/HistoryNer/NER_02"
 prefix = "https://label-studio.semant.cz/data/local-files/?d=historical_ner"
 my_prefix = "./HistoryNer"
 edit_prefix = "./EHistoryNer"
