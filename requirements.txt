@@ -6,3 +6,4 @@ evaluate~=0.4.3
 transformers~=4.50.3
 datasets~=3.5.0
 scikit-learn~=1.4.2
+beautifulsoup4~=4.12.3
